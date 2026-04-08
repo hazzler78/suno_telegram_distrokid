@@ -8,6 +8,7 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, urlparse
 
 import aiohttp
+from mutagen import File as MutagenFile
 from telegram import Message
 from telegram.ext import ContextTypes
 
@@ -49,6 +50,31 @@ async def _download_from_telegram(message: Message, context: ContextTypes.DEFAUL
     target = settings.paths.download_dir / filename
     await file.download_to_drive(custom_path=str(target))
     return DownloadResult(audio_path=target, source_url="telegram://upload")
+
+
+def _is_valid_download_payload(data: bytes, suffix: str) -> bool:
+    if not data or len(data) < 120_000:
+        return False
+    head = data[:512].lower()
+    if b"<html" in head or b"<!doctype html" in head or b"access denied" in head:
+        return False
+    if suffix == ".wav":
+        return data[:4] == b"RIFF" and b"WAVE" in data[:16]
+    # mp3
+    if data[:3] == b"ID3":
+        return True
+    return len(data) > 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0
+
+
+def _is_valid_audio_file(path: Path) -> bool:
+    try:
+        audio = MutagenFile(path)
+        if not audio or not getattr(audio, "info", None):
+            return False
+        length = float(getattr(audio.info, "length", 0.0) or 0.0)
+        return length >= 20.0
+    except Exception:
+        return False
 
 
 def _extract_suno_url(text: str) -> Optional[str]:
@@ -93,9 +119,17 @@ async def _download_audio_url(session: aiohttp.ClientSession, audio_url: str, so
             if not data:
                 return None
             suffix = ".wav" if ".wav" in audio_url.lower() else ".mp3"
+            if not _is_valid_download_payload(data, suffix=suffix):
+                return None
             stem = song_id or "suno_track"
             target = settings.paths.download_dir / f"{stem}{suffix}"
             target.write_bytes(data)
+            if not _is_valid_audio_file(target):
+                try:
+                    target.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                return None
             return target
     except Exception:
         return None
@@ -105,12 +139,22 @@ def _extract_html_metadata(html_text: str) -> dict[str, Any]:
     unescaped = html.unescape(html_text).replace("\\u0026", "&").replace("\\/", "/")
     meta: dict[str, Any] = {}
     title_match = re.search(r'"title"\s*:\s*"([^"]+)"', unescaped)
+    og_title_match = re.search(r'<meta[^>]+property="og:title"[^>]+content="([^"]+)"', unescaped, re.IGNORECASE)
     lyrics_match = re.search(r'"lyrics"\s*:\s*"([^"]+)"', unescaped)
     tags_match = re.search(r'"tags"\s*:\s*"([^"]+)"', unescaped)
     prompt_match = re.search(r'"prompt"\s*:\s*"([^"]+)"', unescaped)
     creator_match = re.search(r'"display_name"\s*:\s*"([^"]+)"', unescaped)
+    title_val = None
     if title_match:
-        meta["title"] = title_match.group(1)
+        title_val = title_match.group(1)
+    if og_title_match:
+        og_val = og_title_match.group(1)
+        if og_val and ("suno" not in og_val.lower() or not title_val):
+            title_val = og_val
+    if title_val:
+        title_val = re.sub(r"\s*[\-|–|•]\s*Suno.*$", "", title_val, flags=re.IGNORECASE).strip()
+        if title_val and len(title_val) > 2:
+            meta["title"] = title_val
     if creator_match:
         meta["artist"] = creator_match.group(1)
     if lyrics_match:
@@ -141,6 +185,10 @@ async def _download_from_suno_link(url: str) -> DownloadResult:
         try:
             html_text = await _http_get_text(session, normalized_url)
             source_meta.update(_extract_html_metadata(html_text))
+            if not song_id:
+                html_uuid = _extract_uuid(html_text)
+                if html_uuid:
+                    song_id = html_uuid
             unescaped = html.unescape(html_text)
             audio_match = EMBEDDED_AUDIO_RE.search(unescaped) or AUDIO_URL_RE.search(unescaped)
             if audio_match:

@@ -66,17 +66,26 @@ class SongTracker:
         title: Optional[str] = None,
         artist: Optional[str] = None,
     ) -> str:
-        track_id = song_id or uuid.uuid4().hex[:12]
+        # Keep a unique processing-run id as PK. song_id stores Suno UUID and may repeat.
+        track_id = uuid.uuid4().hex[:12]
         now = datetime.now(timezone.utc).isoformat()
         with self._lock:
             with self._conn() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO songs (id, song_id, source_url, title, artist, timestamp, status, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (track_id, song_id, source_url, title, artist, now, "downloaded", ""),
-                )
+                # Very unlikely collision guard for short ids.
+                for _ in range(3):
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO songs (id, song_id, source_url, title, artist, timestamp, status, notes)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (track_id, song_id, source_url, title, artist, now, "downloaded", ""),
+                        )
+                        break
+                    except sqlite3.IntegrityError:
+                        track_id = uuid.uuid4().hex[:12]
+                else:
+                    raise
                 conn.commit()
         return track_id
 

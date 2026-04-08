@@ -45,6 +45,26 @@ async def history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+async def last_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    assert update.message is not None
+    rows = await asyncio.to_thread(tracker.get_song_history, 1)
+    if not rows:
+        await update.message.reply_text("No tracked songs yet.")
+        return
+    row = rows[0]
+    text = (
+        f"Latest run: `{row['id']}`\n"
+        f"Song UUID: `{row.get('song_id') or 'N/A'}`\n"
+        f"Status: `{row['status']}`\n"
+        f"Title: {row.get('title') or 'N/A'}\n"
+        f"Artist: {row.get('artist') or 'N/A'}\n"
+        f"Audio: {row.get('audio_path') or 'N/A'}\n"
+        f"Cover: {row.get('cover_path') or 'N/A'}\n"
+        f"Zip: {row.get('zip_path') or 'N/A'}"
+    )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     assert update.message is not None
     if not context.args:
@@ -111,10 +131,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "downloaded",
             audio_path=str(download_result.audio_path),
         )
-        await message.reply_text(f"✅ Step 1/5: Downloaded (ID: `{track_key}`)", parse_mode="Markdown")
+        try:
+            size_mb = download_result.audio_path.stat().st_size / (1024 * 1024)
+            await message.reply_text(
+                f"✅ Step 1/5: Downloaded `{download_result.audio_path.name}` ({size_mb:.2f} MB) (ID: `{track_key}`)",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await message.reply_text(f"✅ Step 1/5: Downloaded (ID: `{track_key}`)", parse_mode="Markdown")
 
         await message.reply_text("Step 2/5: Extracting metadata...")
         meta = await parse_metadata_with_ai_fallback(download_result.audio_path, source_metadata=source_meta)
+        if settings.default_artist_name:
+            meta.artist = settings.default_artist_name
         await asyncio.to_thread(
             tracker.update_song_status,
             track_key,
@@ -179,6 +208,7 @@ def run_bot() -> None:
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("history", history_cmd))
+    application.add_handler(CommandHandler("last", last_cmd))
     application.add_handler(CommandHandler("status", status_cmd))
     application.add_handler(CommandHandler("notes", notes_cmd))
 

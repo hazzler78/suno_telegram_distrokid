@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, Optional
+from urllib.error import URLError, HTTPError
+from urllib.request import Request, urlopen
 
 from mutagen import File as MutagenFile
-from openai import OpenAI
 
 from config.settings import settings
 from utils import get_logger
@@ -49,22 +51,34 @@ def _ai_guess_genre(title: str, lyrics: Optional[str]) -> str:
     if not settings.openai_api_key:
         return "Electronic"
     try:
-        # Use env var implicitly; avoid passing unexpected kwargs
-        client = OpenAI()
         prompt = (
             "Guess a single-word genre given the song title and optional lyrics. "
             "Respond with only the genre word.\n"
             f"Title: {title}\n"
             f"Lyrics: {lyrics or 'N/A'}\n"
         )
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=6,
+        body = {
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 6,
+        }
+        req = Request(
+            url="https://api.openai.com/v1/chat/completions",
+            data=json.dumps(body).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {settings.openai_api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
         )
-        guess = response.choices[0].message.content.strip()
+        with urlopen(req, timeout=30) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        guess = payload["choices"][0]["message"]["content"].strip()
         return guess.split("\n")[0][:40]
+    except (HTTPError, URLError, KeyError, ValueError) as exc:
+        logger.warning("OpenAI genre guess failed: %s", exc)
+        return "Electronic"
     except Exception as exc:
         logger.warning("OpenAI genre guess failed: %s", exc)
         return "Electronic"

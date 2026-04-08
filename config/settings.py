@@ -23,11 +23,13 @@ class Settings(BaseSettings):
     grok_api_key: str | None = Field(default=None, alias="GROK_API_KEY")
     image_provider: str = Field(default=os.getenv("IMAGE_PROVIDER", "grok"), alias="IMAGE_PROVIDER")
     image_model: str = Field(default=os.getenv("IMAGE_MODEL", "grok-2-image"), alias="IMAGE_MODEL")
+    openai_image_model: str = Field(default=os.getenv("OPENAI_IMAGE_MODEL", "gpt-image-1"), alias="OPENAI_IMAGE_MODEL")
     grok_base_url: str = Field(default=os.getenv("GROK_BASE_URL", "https://api.x.ai/v1"), alias="GROK_BASE_URL")
     stable_diffusion_api_key: str | None = Field(default=None, alias="STABLE_DIFFUSION_API_KEY")
 
     distrokid_email: str | None = Field(default=None, alias="DISTROKID_EMAIL")
     distrokid_password: str | None = Field(default=None, alias="DISTROKID_PASSWORD")
+    default_artist_name: str | None = Field(default=os.getenv("DEFAULT_ARTIST_NAME", ""), alias="DEFAULT_ARTIST_NAME")
 
     # Suno web login for download flow
     suno_email: str | None = Field(default=None, alias="SUNO_EMAIL")
