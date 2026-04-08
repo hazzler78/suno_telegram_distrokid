@@ -11,6 +11,7 @@ class Paths(BaseModel):
 	download_dir: Path = Field(default=Path(os.getenv("DOWNLOAD_DIR", "work/downloads")))
 	cover_dir: Path = Field(default=Path(os.getenv("COVER_DIR", "work/covers")))
 	cookies_dir: Path = Field(default=Path(os.getenv("COOKIES_DIR", "work/cookies")))
+	output_dir: Path = Field(default=Path(os.getenv("OUTPUT_DIR", "work/output")))
 
 
 class Settings(BaseSettings):
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
         self.paths.download_dir.mkdir(parents=True, exist_ok=True)
         self.paths.cover_dir.mkdir(parents=True, exist_ok=True)
         self.paths.cookies_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.output_dir.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()

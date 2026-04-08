@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -10,6 +13,30 @@ from utils import get_logger
 from utils.human_verification import is_human_verification_present, wait_for_human_verification
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class BrowserDownloadResult:
+	audio_path: Optional[Path]
+	metadata: dict[str, Any] = field(default_factory=dict)
+	song_id: Optional[str] = None
+
+
+def _extract_page_metadata(html_text: str) -> dict[str, Any]:
+	meta: dict[str, Any] = {}
+	patterns = {
+		"title": r'"title"\s*:\s*"([^"]+)"',
+		"artist": r'"display_name"\s*:\s*"([^"]+)"',
+		"lyrics": r'"lyrics"\s*:\s*"([^"]+)"',
+		"style": r'"tags"\s*:\s*"([^"]+)"',
+		"prompt": r'"prompt"\s*:\s*"([^"]+)"',
+	}
+	for key, pattern in patterns.items():
+		match = re.search(pattern, html_text)
+		if match:
+			value = match.group(1).replace("\\n", "\n").replace("\\u0026", "&").replace("\\/", "/")
+			meta[key] = value
+	return meta
 
 
 async def _snapshot(page, name: str) -> None:
@@ -106,7 +133,7 @@ async def _ensure_logged_in(context, page) -> None:
 			logger.warning("Suno credential login failed: %s", exc)
 
 
-async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> Optional[Path]:
+async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> BrowserDownloadResult:
 	trace_path = settings.paths.work_dir / "trace_suno.zip"
 	cookies_path = settings.paths.cookies_dir / "suno_cookies.json"
 	
@@ -117,7 +144,8 @@ async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> Opt
 		# Load existing cookies if available
 		if cookies_path.exists():
 			try:
-				await context.add_cookies(cookies_path.read_text())
+				cookies = json.loads(cookies_path.read_text(encoding="utf-8"))
+				await context.add_cookies(cookies)
 				logger.info("Loaded Suno cookies from %s", cookies_path)
 			except Exception as exc:
 				logger.warning("Failed to load Suno cookies: %s", exc)
@@ -131,7 +159,8 @@ async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> Opt
 			await page.goto(song_url, wait_until="networkidle")
 			await _snapshot(page, "song_page")
 			if not await _handle_human_verification(page):
-				return None
+				return BrowserDownloadResult(audio_path=None)
+			page_meta = _extract_page_metadata(await page.content())
 
 			selectors = ["button:has-text('Download')", "a:has-text('Download')", "[data-testid='download']"]
 			for sel in selectors:
@@ -142,7 +171,7 @@ async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> Opt
 
 			if not sel:
 				logger.warning("No download button found on the Suno song page.")
-				return None
+				return BrowserDownloadResult(audio_path=None, metadata=page_meta)
 
 			with page.expect_download(timeout=45000) as download_info:
 				await page.locator(sel).first.click()
@@ -152,7 +181,7 @@ async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> Opt
 			save_path = target_dir / filename
 			await download.save_as(str(save_path))
 			logger.info("Suno download saved: %s", save_path)
-			return save_path
+			return BrowserDownloadResult(audio_path=save_path, metadata=page_meta)
 		except PlaywrightTimeoutError:
 			logger.warning("Download timed out on Suno page: %s", song_url)
 		except Exception as exc:
@@ -161,7 +190,7 @@ async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> Opt
 			# Save cookies for next time
 			try:
 				cookies = await context.cookies()
-				cookies_path.write_text(str(cookies))
+				cookies_path.write_text(json.dumps(cookies), encoding="utf-8")
 				logger.info("Saved Suno cookies to %s", cookies_path)
 			except Exception as exc:
 				logger.warning("Failed to save Suno cookies: %s", exc)
@@ -177,4 +206,4 @@ async def download_suno_song_via_browser(song_url: str, target_dir: Path) -> Opt
 				await browser.close()
 			except Exception:
 				pass
-	return None
+	return BrowserDownloadResult(audio_path=None)

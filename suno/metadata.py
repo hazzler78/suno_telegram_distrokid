@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from mutagen import File as MutagenFile
 from openai import OpenAI
@@ -19,6 +19,10 @@ class TrackMetadata:
     artist: str
     genre: str
     lyrics: Optional[str] = None
+    style: Optional[str] = None
+    prompt: Optional[str] = None
+    source_url: Optional[str] = None
+    song_id: Optional[str] = None
 
 
 def _read_basic_tags(path: Path) -> dict[str, str]:
@@ -66,14 +70,26 @@ def _ai_guess_genre(title: str, lyrics: Optional[str]) -> str:
         return "Electronic"
 
 
-async def parse_metadata_with_ai_fallback(path: Path) -> TrackMetadata:
+async def parse_metadata_with_ai_fallback(path: Path, source_metadata: Optional[dict[str, Any]] = None) -> TrackMetadata:
+    source_metadata = source_metadata or {}
     tags = _read_basic_tags(path)
-    title = tags.get("title") or tags.get("tit2") or path.stem
-    artist = tags.get("artist") or tags.get("tpe1") or "Unknown Artist"
-    genre = tags.get("genre") or tags.get("tcon")
-    lyrics = tags.get("uslt")
+    title = source_metadata.get("title") or tags.get("title") or tags.get("tit2") or path.stem
+    artist = source_metadata.get("artist") or tags.get("artist") or tags.get("tpe1") or "Unknown Artist"
+    genre = source_metadata.get("genre") or source_metadata.get("style") or tags.get("genre") or tags.get("tcon")
+    lyrics = source_metadata.get("lyrics") or tags.get("uslt")
+    style = source_metadata.get("style")
+    prompt = source_metadata.get("prompt")
 
     if not genre:
         genre = _ai_guess_genre(title, lyrics)
 
-    return TrackMetadata(title=title, artist=artist, genre=genre, lyrics=lyrics)
+    return TrackMetadata(
+        title=title,
+        artist=artist,
+        genre=genre,
+        lyrics=lyrics,
+        style=style,
+        prompt=prompt,
+        source_url=source_metadata.get("source_url"),
+        song_id=source_metadata.get("song_id"),
+    )
