@@ -54,16 +54,29 @@ def _save_placeholder(meta: TrackMetadata) -> Path:
 
 
 async def generate_cover(meta: TrackMetadata) -> Path:
+	provider = (settings.image_provider or "grok").strip().lower()
+	if provider == "grok":
+		api_key = settings.grok_api_key
+	elif provider == "openai":
+		api_key = settings.openai_api_key
+	else:
+		api_key = settings.grok_api_key or settings.openai_api_key
+
 	# If no key, immediately use placeholder
-	if not settings.openai_api_key:
+	if not api_key:
 		return _save_placeholder(meta)
 
 	try:
-		client = OpenAI()  # rely on OPENAI_API_KEY env var
+		if provider == "grok":
+			client = OpenAI(api_key=api_key, base_url=settings.grok_base_url)
+		elif provider == "openai":
+			client = OpenAI(api_key=api_key)
+		else:
+			client = OpenAI(api_key=api_key, base_url=settings.grok_base_url)
 		prompt = _prompt_from_meta(meta)
 
 		result = client.images.generate(
-			model="gpt-image-1",
+			model=settings.image_model,
 			prompt=prompt,
 			size="1024x1024",
 			n=1,
@@ -75,5 +88,5 @@ async def generate_cover(meta: TrackMetadata) -> Path:
 		target = settings.paths.cover_dir / f"{_safe_stem(meta.title)}_cover.jpg"
 		return _finalize_cover(img, target)
 	except Exception as exc:
-		logger.warning("OpenAI image generation failed: %s", exc)
+		logger.warning("Image generation failed for provider '%s': %s", provider, exc)
 		return _save_placeholder(meta)

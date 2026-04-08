@@ -54,6 +54,14 @@ docker run --env-file .env -p 8080:8080 -v ${PWD}\work:/app/work suno-telegram-d
 - Playwright cookies are saved to `work/cookies/suno_cookies.json` and reused.
 
 ### Notes
-- OpenAI image generation requires `OPENAI_API_KEY`. Without it, a placeholder cover is generated.
+- Image generation defaults to Grok/xAI:
+  - set `IMAGE_PROVIDER=grok`
+  - set `GROK_API_KEY=...`
+  - optional: `GROK_BASE_URL=https://api.x.ai/v1`
+  - optional: `IMAGE_MODEL=grok-2-image`
+- You can still use OpenAI by setting:
+  - `IMAGE_PROVIDER=openai`
+  - `OPENAI_API_KEY=...`
+  - `IMAGE_MODEL=gpt-image-1`
 - DistroKid UI selectors can change; adjust `distrokid/uploader.py` if auto-upload starts failing.
 - Manual package zip is the primary reliable output path for daily use.

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     telegram_bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
 
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
+    grok_api_key: str | None = Field(default=None, alias="GROK_API_KEY")
+    image_provider: str = Field(default=os.getenv("IMAGE_PROVIDER", "grok"), alias="IMAGE_PROVIDER")
+    image_model: str = Field(default=os.getenv("IMAGE_MODEL", "grok-2-image"), alias="IMAGE_MODEL")
+    grok_base_url: str = Field(default=os.getenv("GROK_BASE_URL", "https://api.x.ai/v1"), alias="GROK_BASE_URL")
     stable_diffusion_api_key: str | None = Field(default=None, alias="STABLE_DIFFUSION_API_KEY")
 
     distrokid_email: str | None = Field(default=None, alias="DISTROKID_EMAIL")
